@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Software Architecture Pulse</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark background */
+            color: #c9d1d9; /* Light text */
+            scroll-behavior: smooth;
+        }
+        /* Custom scrollbar style for better aesthetics in dark mode */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #161b22;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #484f58;
+        }
+        /* Style for interactive buttons/links */
+        .card-link {
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        .card-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 200, 255, 0.2);
+        }
+        /* Modal backdrop styling */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: #161b22;
+            max-width: 900px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 12px;
+            border: 1px solid #30363d;
+            box-shadow: 0 10px 20px rgba(0, 200, 255, 0.1);
+        }
+        /* Colors for specific elements */
+        .text-primary-blue { color: #00BFFF; }
+        .text-green-400 { color: #4ade80; }
+        .text-language-color { color: #ffbe00; }
+    </style>
+    <script>
+        // Global state for dashboard data
+        let dashboardData = {
+            trends: [],
+            tools: [],
+            languages: [],
+            blogs: [],
+        };
+        let isLoading = true;
+
+        // --- UI Rendering Functions ---
+
+        // Centralized HTML for the loading spinner
+        const getLoadingCardHTML = (message) => `
+            <div class="col-span-full flex flex-col items-center justify-center p-12 bg-[#161b22] rounded-xl border border-[#30363d]">
+                <svg class="animate-spin h-8 w-8 text-primary-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-4 text-white text-lg">${message}</p>
+            </div>
+        `;
+
+        const renderCards = (containerId, items, type) => {
+            const container = document.getElementById(containerId);
+            if (!container) return; 
+
+            // Show loading spinner if data is being fetched
+            if (isLoading) {
+                container.innerHTML = getLoadingCardHTML('Fetching latest architecture pulse...');
+                return;
+            }
+
+            container.innerHTML = ''; // Clear previous content
+
+            if (items.length === 0 && !isLoading) {
+                container.innerHTML = `<p class="col-span-full text-center text-gray-500 p-4">
+                    No items match your criteria or none were generated.
+                </p>`;
+                return;
+            }
+
+            items.forEach(item => {
+                const itemId = btoa(item.title || item.name || item.blogTitle); 
+                item.id = itemId;
+                item.type = type;
+
+                const tagColor = 
+                    type === 'trend' ? 'text-primary-blue' : 
+                    type === 'tool' ? 'text-green-400' : 
+                    type === 'language' ? 'text-language-color' : 
+                    type === 'blog' ? 'text-purple-400' : 
+                    'text-gray-400';
+
+                const title = item.title || item.name || item.blogTitle;
+                const linkLabel = item.author || item.source || item.useCase;
+                const description = item.description || item.summary;
+                const tags = item.tags || [];
+
+                let cardHtml = `
+                    <div id="card-${itemId}" class="card-link p-6 rounded-xl border border-[#30363d] bg-[#161b22] shadow-lg flex flex-col justify-between h-full relative"
+                         onclick="window.openDetailHandler(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                        <div>
+                            <h3 class="text-xl font-bold ${tagColor} mb-2">${title}</h3>
+                            <p class="text-gray-400 mb-4 text-sm">${description}</p>
+                        </div>
+                        <div class="pt-3 border-t border-[#30363d] mt-auto">
+                            ${linkLabel ? `<p class="text-xs text-gray-500 mb-2">Details: <span class="text-gray-400">${linkLabel}</span></p>` : ''}
+                            <div class="flex flex-wrap gap-2">
+                                ${tags.map(tag => `<span class="px-3 py-1 text-xs font-medium bg-[#1e2329] ${tagColor} rounded-full">${tag}</span>`).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                container.innerHTML += cardHtml;
+            });
+        };
+
+        // --- Gemini API Integration ---
+
+        // NOTE: The API key is left as an empty string as per instructions for Canvas environment.
+        const apiKey = ""; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        
+        // Utility to extract clean JSON from potentially markdown-wrapped text
+        const extractJson = (text) => {
+             // Aggressive regex to find the first opening brace and the last closing brace
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0].trim());
+            }
+
+            // Fallback 1: Check for standard markdown block
+            const markdownMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+            if (markdownMatch && markdownMatch[1]) {
+                return JSON.parse(markdownMatch[1]);
+            }
+
+            // Fallback 2: Try to parse the whole string
+            try {
+                return JSON.parse(text.trim());
+            } catch (e) {
+                console.error("Failed to parse JSON using all methods. Raw Text:", text);
+                throw new Error("API returned malformed JSON or non-JSON text.");
+            }
+        };
+
+        // Exponential backoff retry logic
+        const fetchWithRetry = async (url, options, retries = 3) => {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (i < retries - 1) {
+                        const delay = Math.pow(2, i) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+        };
+        
+        // 1. Primary data fetch for the dashboard grid
+        const fetchGeminiData = async (userPrompt) => {
+            const systemPromptBase = "You are a world-class software architect trend analyst. Your goal is to provide a comprehensive, up-to-date summary of the latest trends, essential tools, and popular programming languages in the industry. Respond ONLY with a single JSON object conforming to the provided schema.";
+            
+            const structuredPrompt = `
+                ${systemPromptBase}
+                
+                Please generate the data based on the user request: "${userPrompt}"
+                
+                Response format MUST be a single JSON object. DO NOT add any conversational text or markdown blocks around the JSON object.
+                
+                JSON Schema to follow:
+                {
+                    "trends": [{"title": "string", "description": "string", "tags": ["string"], "date": "string", "url": "string"}],
+                    "tools": [{"title": "string", "description": "string", "tags": ["string"], "source": "string", "url": "string"}],
+                    "languages": [{"name": "string", "description": "string", "tags": ["string"], "useCase": "string", "url": "string"}],
+                    "blogs": [{"blogTitle": "string", "author": "string", "summary": "string", "tags": ["string"], "url": "string"}]
+                }
+            `;
+
+            // Function to perform the API call with optional grounding
+            const performApiCall = async (prompt, useGrounding) => {
+                let systemPrompt = systemPromptBase;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                };
+                
+                if (useGrounding) {
+                    payload.tools = [{ "google_search": {} }];
+                    systemPrompt += " Include real, verifiable URLs using Google Search.";
+                } else {
+                    systemPrompt += " Include a plausible but fake URL in the required field, as search is unavailable.";
+                }
+                
+                payload.systemInstruction = { parts: [{ text: systemPrompt }] };
+
+                const options = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                };
+                
+                const response = await fetchWithRetry(apiUrl, options);
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    const parsedData = extractJson(text);
+                    return parsedData;
+                } else if (result.error) {
+                    throw new Error(`API Error: ${result.error.message}`);
+                } else {
+                    throw new Error("API returned empty or unexpected content.");
+                }
+            };
+            
+            let dataLoaded = false;
+            try {
+                // Attempt 1: With Google Search Grounding 
+                const parsedData = await performApiCall(structuredPrompt, true);
+                dashboardData.trends = parsedData.trends || [];
+                dashboardData.tools = parsedData.tools || [];
+                dashboardData.languages = parsedData.languages || [];
+                dashboardData.blogs = parsedData.blogs || [];
+                dataLoaded = true;
+
+            } catch (error) {
+                console.warn(`Grounding attempt failed: ${error.message}. Falling back to internal knowledge.`);
+                
+                // Attempt 2: Without Grounding 
+                try {
+                    const parsedData = await performApiCall(structuredPrompt, false);
+                    dashboardData.trends = parsedData.trends || [];
+                    dashboardData.tools = parsedData.tools || [];
+                    dashboardData.languages = parsedData.languages || [];
+                    dashboardData.blogs = parsedData.blogs || [];
+                    dataLoaded = true;
+                } catch (fallbackError) {
+                    console.error("Fallback failed:", fallbackError);
+                    const mainContainer = document.getElementById('trends-container');
+                    if (mainContainer) {
+                       mainContainer.innerHTML = `<p class="col-span-full text-center text-red-400 p-8 text-xl bg-[#161b22] rounded-xl border border-red-800/50">
+                            CRITICAL API ERROR: Failed to load dashboard data. Please check the console for details.
+                       </p>`;
+                    }
+                }
+            } finally {
+                isLoading = false;
+                // Re-render the containers with the loaded data (or error message)
+                renderCards('trends-container', dashboardData.trends, 'trend');
+                renderCards('tools-container', dashboardData.tools, 'tool');
+                renderCards('languages-container', dashboardData.languages, 'language');
+                renderCards('blogs-container', dashboardData.blogs, 'blog');
+            }
+        };
+        
+        // 2. Secondary data fetch for the detail modal
+        const generateBlogSummary = async (topic) => {
+            const topicTitle = topic.title || topic.name || topic.blogTitle;
+            
+            // NOTE: Citations/Grounding metadata extraction is removed here.
+            
+            const systemPrompt = `You are a professional software architecture blogger. Write a detailed, engaging blog post (approx. 500 words, in Markdown format) about the topic: "${topicTitle}". Crucially, mention specific tools, programming languages, and implementation strategies relevant to this topic. Do not include a title in the response. Provide a concise summary of the content and include the tools, languages, and implementation strategies as a list/section within the blog.`;
+            
+            const userQuery = `Write a detailed technical blog post on "${topicTitle}", ensuring it covers specific tools, languages, and implementation strategies.`;
+            
+            const performApiCallDetail = async (prompt, useGrounding) => {
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+                
+                if (useGrounding) {
+                    payload.tools = [{ "google_search": {} }];
+                }
+
+                const options = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                };
+                
+                const response = await fetchWithRetry(apiUrl, options);
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    // Only return text, no source processing
+                    return { text };
+                } else if (result.error) {
+                    throw new Error(`API Error: ${result.error.message}`);
+                } else {
+                    throw new Error("API returned empty content.");
+                }
+            };
+
+            try {
+                // Attempt 1: With Google Search Grounding
+                const result = await performApiCallDetail(userQuery, true);
+                return result;
+
+            } catch (error) {
+                console.warn(`Detail Grounding failed: ${error.message}. Falling back to internal knowledge.`);
+                
+                // Attempt 2: Without Grounding
+                try {
+                    const result = await performApiCallDetail(userQuery, false);
+                    return result;
+                } catch (fallbackError) {
+                    console.error("Detail Fallback failed:", fallbackError);
+                    return { text: `### Error Generating Content\n\nFailed to generate content for "${topicTitle}". Please check your console for API errors.` };
+                }
+            }
+        };
+
+        // --- Detail Modal Functions ---
+
+        window.openDetailHandler = async (item) => {
+            const modal = document.getElementById('detail-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-content-body');
+            
+            // Source section removed entirely
+
+            // Set title and show loading state
+            modalTitle.textContent = item.title || item.name || item.blogTitle;
+            modalBody.innerHTML = window.getLoadingHTML();
+            modal.classList.remove('hidden');
+
+            const result = await generateBlogSummary(item);
+
+            // Hide loading and render content
+            if (result.text) {
+                // Use a simple Markdown renderer for presentation
+                let htmlContent = result.text
+                    .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') // Bold
+                    .replace(/\*(.*?)\*/g, '<i>$1</i>')   // Italic
+                    .replace(/^#+ (.*$)/gim, '<h4 class="text-xl font-semibold mt-6 mb-2 text-primary-blue">$1</h4>') // Headings
+                    .replace(/^- (.*$)/gim, '<li class="ml-4 list-disc text-gray-300">$1</li>') // List items
+                    .replace(/^(?!<h4 class="text-xl|<li class="ml-4">)(.*$)/gim, '<p class="mb-4 text-gray-300">$1</p>'); // Paragraphs
+
+                modalBody.innerHTML = htmlContent;
+            } else {
+                modalBody.innerHTML = `
+                    <p class="text-red-400 p-4">Error loading content: Check console for details.</p>
+                `;
+            }
+        };
+
+        window.closeDetail = () => {
+            document.getElementById('detail-modal').classList.add('hidden');
+        };
+
+        // Global loading HTML for the modal
+        window.getLoadingHTML = () => `
+            <div class="flex flex-col items-center justify-center p-16">
+                <svg class="animate-spin h-8 w-8 text-primary-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-4 text-primary-blue text-lg">Generating detailed analysis...</p>
+            </div>
+        `;
+
+        // --- Main Initialization ---
+        
+        const initDashboard = async () => {
+            // Display loading state initially
+            isLoading = true;
+            renderCards('trends-container', [], 'trend');
+            renderCards('tools-container', [], 'tool');
+            renderCards('languages-container', [], 'language');
+            renderCards('blogs-container', [], 'blog');
+            
+            // Fetch data from API
+            const userQuery = "Provide the latest software architecture trends, essential tools, and most popular programming languages relevant to modern systems design, and list 6 highly recommended blogs or articles.";
+            await fetchGeminiData(userQuery);
+        };
+        
+        window.onload = initDashboard;
+        
+        // Simple filtering function
+        window.filterCards = (query) => {
+            const queryLower = query.toLowerCase();
+
+            // Only filter if data has been loaded
+            if (isLoading) return;
+
+            const filterItems = (items) => {
+                return items.filter(item => {
+                    const title = item.title || item.name || item.blogTitle;
+                    const description = item.description || item.summary;
+                    const linkLabel = item.author || item.source || item.useCase;
+                    
+                    return title?.toLowerCase().includes(queryLower) ||
+                           description?.toLowerCase().includes(queryLower) ||
+                           linkLabel?.toLowerCase().includes(queryLower) ||
+                           item.tags?.some(tag => tag.toLowerCase().includes(queryLower));
+                });
+            };
+
+            // Re-render based on filtered results
+            renderCards('trends-container', filterItems(dashboardData.trends), 'trend');
+            renderCards('tools-container', filterItems(dashboardData.tools), 'tool');
+            renderCards('languages-container', filterItems(dashboardData.languages), 'language');
+            renderCards('blogs-container', filterItems(dashboardData.blogs), 'blog');
+        };
+    </script>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="sticky top-0 z-50 bg-[#161b22] border-b border-[#30363d] shadow-2xl">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row justify-between items-center">
+            <h1 class="text-3xl font-extrabold text-primary-blue tracking-tight mb-3 md:mb-0">
+                <span class="text-2xl text-white mr-1">λ</span> Architecture Pulse
+            </h1>
+
+            <!-- Search Bar -->
+            <div class="w-full md:w-1/3">
+                <input
+                    type="search"
+                    id="search-input"
+                    onkeyup="window.filterCards(this.value)"
+                    placeholder="Search trends, tools, languages, or topics..."
+                    class="w-full p-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg focus:ring-primary-blue focus:border-primary-blue text-sm text-white transition duration-150"
+                >
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Layout -->
+    <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+
+        <!-- Introduction Banner -->
+        <section class="mb-12 p-6 md:p-10 bg-[#161b22] border border-primary-blue/50 rounded-2xl shadow-xl">
+            <h2 class="text-2xl md:text-3xl font-semibold mb-3 text-white">Your Real-Time Architecture Update</h2>
+            <p class="text-gray-400 text-lg">
+                Powered by Gemini API, stay ahead of the curve with curated insights on modern distributed systems, cloud patterns, and essential developer tools.
+            </p>
+        </section>
+        
+        <!-- 1. Latest Architecture Trends -->
+        <section id="trends" class="mb-16">
+            <h2 class="text-3xl font-bold border-l-4 border-primary-blue pl-4 mb-8 text-white">
+                <span class="text-primary-blue">01.</span> Latest Architecture Trends
+            </h2>
+            <div id="trends-container" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <!-- Trend cards will be injected here by JavaScript/API -->
+            </div>
+        </section>
+
+        <!-- 2. Essential Tools & Technologies -->
+        <section id="tools" class="mb-16">
+            <h2 class="text-3xl font-bold border-l-4 border-green-400 pl-4 mb-8 text-white">
+                <span class="text-green-400">02.</span> Essential Tools & Technologies
+            </h2>
+            <div id="tools-container" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <!-- Tool cards will be injected here by JavaScript/API -->
+            </div>
+        </section>
+
+        <!-- 3. Top Programming Languages -->
+        <section id="languages" class="mb-16">
+            <h2 class="text-3xl font-bold border-l-4 border-language-color pl-4 mb-8 text-white">
+                <span class="text-language-color">03.</span> Top Programming Languages
+            </h2>
+            <div id="languages-container" class="grid gap-6 sm:grid-cols-1 lg:grid-cols-3">
+                <!-- Language cards will be injected here by JavaScript/API -->
+            </div>
+        </section>
+        
+        <!-- 4. Recommended Blog Posts -->
+        <section id="blogs" class="mb-16">
+            <h2 class="text-3xl font-bold border-l-4 border-purple-400 pl-4 mb-8 text-white">
+                <span class="text-purple-400">04.</span> Highly Recommended Blog Posts
+            </h2>
+            <div id="blogs-container" class="grid gap-6 sm:grid-cols-1 lg:grid-cols-3">
+                <!-- Blog cards will be injected here by JavaScript/API -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Detail Modal -->
+    <div id="detail-modal" class="modal-backdrop hidden" onclick="window.closeDetail()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="p-6">
+                <!-- Modal Header -->
+                <div class="flex justify-between items-start border-b border-[#30363d] pb-4 mb-4">
+                    <h3 id="modal-title" class="text-3xl font-bold text-white pr-8">Detail Title</h3>
+                    <button class="text-gray-400 hover:text-white" onclick="window.closeDetail()">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                
+                <!-- Modal Body (AI Generated Content) -->
+                <div id="modal-content-body" class="markdown-body text-gray-300 pb-4">
+                    <!-- Generated blog content will be inserted here -->
+                </div>
+                
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-[#161b22] border-t border-[#30363d] mt-10 py-6">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-gray-500">
+            <p>&copy; 2025 Architecture Pulse | Powered by Google Gemini API.</p>
+        </div>
+    </footer>
+</body>
+</html>
