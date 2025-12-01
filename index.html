@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Software Architecture Pulse</title>
+    <meta name="description"
+        content="Stay updated with the latest software architecture trends, tools, and technologies powered by Gemini API">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="config.js"></script>
+
+    <!-- Custom Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary-blue': '#58a6ff',
+                        'language-color': '#ffa657',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+            min-height: 100vh;
+        }
+
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .line-clamp-3 {
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        /* Modal Styles */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            max-width: 800px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .modal-content::-webkit-scrollbar-track {
+            background: #0d1117;
+            border-radius: 4px;
+        }
+
+        .modal-content::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 4px;
+        }
+
+        .modal-content::-webkit-scrollbar-thumb:hover {
+            background: #484f58;
+        }
+    </style>
+
+    <script>
+        // --- Global State ---
+        let dashboardData = {
+            trends: [],
+            tools: [],
+            languages: [],
+            blogs: [],
+        };
+
+        let bookmarks = [];
+        let isLoading = false;
+
+        // Search state
+        let isSearchMode = false;
+        let searchQuery = '';
+        let searchResults = {
+            trends: [],
+            tools: [],
+            languages: [],
+            blogs: []
+        };
+
+        // --- Bookmarking Functions ---
+
+        const loadBookmarks = () => {
+            const saved = localStorage.getItem('architecturePulseBookmarks');
+            if (saved) {
+                try {
+                    bookmarks = JSON.parse(saved);
+                } catch (e) {
+                    console.error("Failed to parse bookmarks", e);
+                    bookmarks = [];
+                }
+            }
+            updateBookmarkCount();
+        };
+
+        const saveBookmarks = () => {
+            localStorage.setItem('architecturePulseBookmarks', JSON.stringify(bookmarks));
+            updateBookmarkCount();
+        };
+
+        const toggleBookmark = (item, type) => {
+            const itemId = item.id || btoa(item.title || item.name || item.blogTitle);
+            const index = bookmarks.findIndex(b => b.id === itemId);
+
+            if (index === -1) {
+                bookmarks.push({ ...item, id: itemId, type: type, timestamp: new Date().toISOString() });
+                showToast(`Saved "${item.title || item.name || item.blogTitle}"`);
+            } else {
+                bookmarks.splice(index, 1);
+                showToast(`Removed "${item.title || item.name || item.blogTitle}"`);
+            }
+            saveBookmarks();
+
+            if (document.getElementById('bookmarks-section').classList.contains('hidden') === false) {
+                renderBookmarks();
+            } else if (document.getElementById('search-results-section').classList.contains('hidden') === false) {
+                // Update icon in search results if visible
+                updateCardBookmarkIcon(itemId);
+            } else {
+                updateCardBookmarkIcon(itemId);
+            }
+        };
+
+        const isBookmarked = (itemId) => {
+            return bookmarks.some(b => b.id === itemId);
+        };
+
+        const updateBookmarkCount = () => {
+            const countSpan = document.getElementById('bookmark-count');
+            if (countSpan) {
+                countSpan.textContent = bookmarks.length;
+                countSpan.classList.toggle('hidden', bookmarks.length === 0);
+            }
+        };
+
+        const updateCardBookmarkIcon = (itemId) => {
+            const btn = document.getElementById(`bookmark-btn-${itemId}`);
+            if (btn) {
+                const active = isBookmarked(itemId);
+                btn.innerHTML = getBookmarkIconSvg(active);
+                btn.classList.toggle('text-yellow-400', active);
+                btn.classList.toggle('text-gray-500', !active);
+            }
+        };
+
+        const getBookmarkIconSvg = (active) => active ?
+            `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" /></svg>` :
+            `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>`;
+
+        // Helper to generate a robust Google Search URL
+        const generateSearchUrl = (item, type) => {
+            const query = item.title || item.name || item.blogTitle;
+            const context = type === 'trend' ? 'software architecture trend' :
+                type === 'tool' ? 'software tool' :
+                    type === 'language' ? 'programming language' :
+                        'software architecture blog';
+            return `https://www.google.com/search?q=${encodeURIComponent(query + " " + context)}`;
+        };
+
+        // Toast Notification
+        const showToast = (message) => {
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-5 right-5 bg-primary-blue text-black px-6 py-3 rounded-lg shadow-xl transform transition-all duration-300 translate-y-10 opacity-0 z-50 font-semibold';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            });
+
+            // Remove after 3s
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        };
+
+        // --- UI Rendering Functions ---
+
+        // Centralized HTML for the loading spinner
+        const getLoadingCardHTML = (message) => `
+            <div class="col-span-full flex flex-col items-center justify-center p-12 bg-[#161b22] rounded-xl border border-[#30363d]">
+                <svg class="animate-spin h-8 w-8 text-primary-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-4 text-white text-lg">${message}</p>
+            </div>
+        `;
+
+        const renderCards = (containerId, items, type) => {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            // Show loading spinner if data is being fetched
+            if (isLoading) {
+                container.innerHTML = getLoadingCardHTML(isSearchMode ? 'Searching...' : 'Fetching latest architecture pulse...');
+                return;
+            }
+
+            container.innerHTML = ''; // Clear previous content
+
+            if (items.length === 0 && !isLoading) {
+                container.innerHTML = `<p class="col-span-full text-center text-gray-500 p-4">
+                    No items match your criteria or none were generated.
+                </p>`;
+                return;
+            }
+
+            items.forEach(item => {
+                const itemId = item.id || btoa(item.title || item.name || item.blogTitle);
+                item.id = itemId;
+                item.type = type;
+
+                const tagColor =
+                    type === 'trend' ? 'text-primary-blue' :
+                        type === 'tool' ? 'text-green-400' :
+                            type === 'language' ? 'text-language-color' :
+                                type === 'blog' ? 'text-purple-400' :
+                                    'text-gray-400';
+
+                const title = item.title || item.name || item.blogTitle;
+                const linkLabel = item.author || item.source || item.useCase;
+                const description = item.description || item.summary;
+                const tags = item.tags || [];
+                // Use robust search URL instead of potentially hallucinated API URL
+                const url = generateSearchUrl(item, type);
+                const bookmarked = isBookmarked(itemId);
+
+                let cardHtml = `
+                    <div id="card-${itemId}" class="p-6 rounded-xl border border-[#30363d] bg-[#161b22] shadow-lg flex flex-col justify-between h-full relative group hover:-translate-y-1 hover:shadow-primary-blue/20 transition-all duration-300">
+                        <div class="absolute top-4 right-4 z-10">
+                            <button id="bookmark-btn-${itemId}" onclick="event.stopPropagation(); toggleBookmark(${JSON.stringify(item).replace(/"/g, '&quot;')}, '${type}')" 
+                                class="p-1 rounded-full hover:bg-[#30363d] transition-colors ${bookmarked ? 'text-yellow-400' : 'text-gray-500'}">
+                                ${getBookmarkIconSvg(bookmarked)}
+                            </button>
+                        </div>
+                        
+                        <div class="cursor-pointer" onclick="window.openDetailHandler(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                            <h3 class="text-xl font-bold ${tagColor} mb-2 pr-8">${title}</h3>
+                            <p class="text-gray-400 mb-4 text-sm line-clamp-3">${description}</p>
+                        </div>
+                        
+                        <div class="pt-3 border-t border-[#30363d] mt-auto">
+                            ${linkLabel ? `<p class="text-xs text-gray-500 mb-2">Details: <span class="text-gray-400">${linkLabel}</span></p>` : ''}
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                ${tags.map(tag => `<span class="px-3 py-1 text-xs font-medium bg-[#1e2329] ${tagColor} rounded-full border border-[#30363d]">${tag}</span>`).join('')}
+                            </div>
+                            <a href="${url}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center text-xs font-semibold text-blue-400 hover:text-blue-300 hover:underline mt-1" onclick="event.stopPropagation()">
+                                Learn more 
+                                <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                            </a>
+                        </div>
+                    </div>
+                `;
+
+                container.innerHTML += cardHtml;
+            });
+        };
+
+        const renderBookmarks = () => {
+            const container = document.getElementById('bookmarks-grid');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (bookmarks.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full flex flex-col items-center justify-center p-12 text-gray-500">
+                        <svg class="w-16 h-16 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+                        <p class="text-lg">No saved items yet.</p>
+                        <p class="text-sm mt-2">Bookmark trends, tools, or languages to see them here.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Reuse render logic but adapted for the mixed list
+            bookmarks.forEach(item => {
+                const type = item.type || 'trend'; // fallback
+                const itemId = item.id;
+
+                const tagColor =
+                    type === 'trend' ? 'text-primary-blue' :
+                        type === 'tool' ? 'text-green-400' :
+                            type === 'language' ? 'text-language-color' :
+                                type === 'blog' ? 'text-purple-400' :
+                                    'text-gray-400';
+
+                const title = item.title || item.name || item.blogTitle;
+                const description = item.description || item.summary;
+                const url = generateSearchUrl(item, type);
+
+                let cardHtml = `
+                    <div class="p-4 rounded-xl border border-[#30363d] bg-[#161b22] flex flex-col relative group">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-lg font-bold ${tagColor} truncate pr-8">${title}</h3>
+                            <button onclick="toggleBookmark(${JSON.stringify(item).replace(/"/g, '&quot;')}, '${type}')" class="text-yellow-400 hover:text-red-400 transition-colors">
+                                <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" /></svg>
+                            </button>
+                        </div>
+                        <p class="text-gray-400 text-sm line-clamp-2 mb-3">${description}</p>
+                        <div class="mt-auto flex justify-between items-center">
+                            <span class="text-xs uppercase tracking-wider text-gray-600 font-bold">${type}</span>
+                            <a href="${url}" target="_blank" class="text-blue-400 hover:underline text-xs">Open Link &rarr;</a>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += cardHtml;
+            });
+        };
+
+        const toggleBookmarksView = () => {
+            const mainView = document.getElementById('main-dashboard');
+            const bookmarksView = document.getElementById('bookmarks-section');
+            const searchView = document.getElementById('search-results-section');
+
+            if (bookmarksView.classList.contains('hidden')) {
+                // Show Bookmarks
+                mainView.classList.add('hidden');
+                searchView.classList.add('hidden');
+                bookmarksView.classList.remove('hidden');
+                renderBookmarks();
+                window.scrollTo(0, 0);
+            } else {
+                // Show Dashboard
+                bookmarksView.classList.add('hidden');
+                mainView.classList.remove('hidden');
+            }
+        };
+
+        // --- Search Functions ---
+
+        const showSearchResults = () => {
+            document.getElementById('main-dashboard').classList.add('hidden');
+            document.getElementById('bookmarks-section').classList.add('hidden');
+            document.getElementById('search-results-section').classList.remove('hidden');
+            document.getElementById('search-query-display').textContent = searchQuery;
+            window.scrollTo(0, 0);
+        };
+
+        const clearSearch = () => {
+            isSearchMode = false;
+            searchQuery = '';
+            searchResults = { trends: [], tools: [], languages: [], blogs: [] };
+            document.getElementById('search-results-section').classList.add('hidden');
+            document.getElementById('main-dashboard').classList.remove('hidden');
+            document.getElementById('search-input').value = '';
+        };
+
+        const performSearch = async (query) => {
+            if (!query || !query.trim()) {
+                clearSearch();
+                return;
+            }
+
+            searchQuery = query.trim();
+            isSearchMode = true;
+            isLoading = true;
+
+            // Show search results view and loading state
+            showSearchResults();
+
+            const systemPromptBase = `You are a world-class software architect trend analyst. Based on the user's search query, provide highly relevant and specific results about software architecture trends, tools, programming languages, and blog recommendations. Respond ONLY with a single JSON object conforming to the provided schema.`;
+
+            const structuredPrompt = `
+                ${systemPromptBase}
+                
+                User search query: "${searchQuery}"
+                
+                Please generate data specifically tailored to this search query. Focus on relevance to the search term.
+                
+                Response format MUST be a single JSON object. DO NOT add any conversational text or markdown blocks around the JSON object.
+                
+                JSON Schema to follow:
+                {
+                    "trends": [{"title": "string", "description": "string", "tags": ["string"], "date": "string"}],
+                    "tools": [{"title": "string", "description": "string", "tags": ["string"], "source": "string"}],
+                    "languages": [{"name": "string", "description": "string", "tags": ["string"], "useCase": "string"}],
+                    "blogs": [{"blogTitle": "string", "author": "string", "summary": "string", "tags": ["string"]}]
+                }
+                
+                Provide at least 2-4 items per category that are relevant to the search query.
+            `;
+
+            const performApiCall = async (prompt) => {
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemPromptBase }] }
+                };
+
+                const options = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                };
+
+                const response = await fetchWithRetry(apiUrl, options);
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    const parsedData = extractJson(text);
+                    return parsedData;
+                } else if (result.error) {
+                    throw new Error(`API Error: ${result.error.message}`);
+                } else {
+                    throw new Error("API returned empty or unexpected content.");
+                }
+            };
+
+            try {
+                const parsedData = await performApiCall(structuredPrompt);
+                searchResults.trends = parsedData.trends || [];
+                searchResults.tools = parsedData.tools || [];
+                searchResults.languages = parsedData.languages || [];
+                searchResults.blogs = parsedData.blogs || [];
+
+            } catch (error) {
+                console.error(`Search failed: ${error.message}`);
+                searchResults = { trends: [], tools: [], languages: [], blogs: [] };
+            } finally {
+                isLoading = false;
+                // Render search results
+                renderCards('search-trends-container', searchResults.trends, 'trend');
+                renderCards('search-tools-container', searchResults.tools, 'tool');
+                renderCards('search-languages-container', searchResults.languages, 'language');
+                renderCards('search-blogs-container', searchResults.blogs, 'blog');
+            }
+        };
+
+        // Handle search input
+        window.handleSearch = (event) => {
+            if (event.key === 'Enter') {
+                const query = event.target.value;
+                performSearch(query);
+            }
+        };
+
+        // --- Gemini API Integration ---
+
+        // NOTE: The API key is loaded from config.js
+        const apiKey = CONFIG.GEMINI_API_KEY;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        // Utility to extract clean JSON from potentially markdown-wrapped text
+        const extractJson = (text) => {
+            // Aggressive regex to find the first opening brace and the last closing brace
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0].trim());
+            }
+
+            // Fallback 1: Check for standard markdown block
+            const markdownMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+            if (markdownMatch && markdownMatch[1]) {
+                return JSON.parse(markdownMatch[1]);
+            }
+
+            // Fallback 2: Try to parse the whole string
+            try {
+                return JSON.parse(text.trim());
+            } catch (e) {
+                console.error("Failed to parse JSON using all methods. Raw Text:", text);
+                throw new Error("API returned malformed JSON or non-JSON text.");
+            }
+        };
+
+        // Exponential backoff retry logic
+        const fetchWithRetry = async (url, options, retries = 3) => {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (i < retries - 1) {
+                        const delay = Math.pow(2, i) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+        };
+
+        // 1. Primary data fetch for the dashboard grid
+        const fetchGeminiData = async (userPrompt) => {
+            const systemPromptBase = "You are a world-class software architect trend analyst. Your goal is to provide a comprehensive, up-to-date summary of the latest trends, essential tools, and popular programming languages in the industry. Respond ONLY with a single JSON object conforming to the provided schema.";
+
+            const structuredPrompt = `
+                ${systemPromptBase}
+                
+                Please generate the data based on the user request: "${userPrompt}"
+                
+                Response format MUST be a single JSON object. DO NOT add any conversational text or markdown blocks around the JSON object.
+                
+                JSON Schema to follow:
+                {
+                    "trends": [{"title": "string", "description": "string", "tags": ["string"], "date": "string"}],
+                    "tools": [{"title": "string", "description": "string", "tags": ["string"], "source": "string"}],
+                    "languages": [{"name": "string", "description": "string", "tags": ["string"], "useCase": "string"}],
+                    "blogs": [{"blogTitle": "string", "author": "string", "summary": "string", "tags": ["string"]}]
+                }
+            `;
+
+            // Function to perform the API call
+            const performApiCall = async (prompt) => {
+                let systemPrompt = systemPromptBase;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                };
+
+                const options = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                };
+
+                const response = await fetchWithRetry(apiUrl, options);
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    const parsedData = extractJson(text);
+                    return parsedData;
+                } else if (result.error) {
+                    throw new Error(`API Error: ${result.error.message}`);
+                } else {
+                    throw new Error("API returned empty or unexpected content.");
+                }
+            };
+
+            let dataLoaded = false;
+            try {
+                // Attempt 1: Standard generation (Grounding removed for speed/reliability as we generate URLs client-side)
+                const parsedData = await performApiCall(structuredPrompt);
+                dashboardData.trends = parsedData.trends || [];
+                dashboardData.tools = parsedData.tools || [];
+                dashboardData.languages = parsedData.languages || [];
+                dashboardData.blogs = parsedData.blogs || [];
+                dataLoaded = true;
+
+            } catch (error) {
+                console.warn(`Generation failed: ${error.message}.`);
+                const mainContainer = document.getElementById('trends-container');
+                if (mainContainer) {
+                    mainContainer.innerHTML = `<p class="col-span-full text-center text-red-400 p-8 text-xl bg-[#161b22] rounded-xl border border-red-800/50">
+                        CRITICAL API ERROR: Failed to load dashboard data. Please check the console for details.
+                   </p>`;
+                }
+            } finally {
+                isLoading = false;
+                // Re-render the containers with the loaded data (or error message)
+                renderCards('trends-container', dashboardData.trends, 'trend');
+                renderCards('tools-container', dashboardData.tools, 'tool');
+                renderCards('languages-container', dashboardData.languages, 'language');
+                renderCards('blogs-container', dashboardData.blogs, 'blog');
+            }
+        };
+
+        // 2. Secondary data fetch for the detail modal
+        const generateBlogSummary = async (topic) => {
+            const topicTitle = topic.title || topic.name || topic.blogTitle;
+
+            // Updated prompt to explicitly request a Markdown table
+            const systemPrompt = `You are a professional software architecture blogger. Write a detailed, engaging blog post (approx. 500 words, in Markdown format) about the topic: "${topicTitle}". 
+            
+            CRITICAL REQUIREMENT: You MUST include a Markdown table titled "Key Tools, Languages, and Strategies" that compares relevant technologies. The table should have columns for "Category", "Tools/Technologies", "Languages/Standards", and "Implementation Strategies".
+            
+            Do not include a title in the response. Provide a concise summary of the content and then the table.`;
+
+            const userQuery = `Write a detailed technical blog post on "${topicTitle}" including a comparison table of tools and strategies.`;
+
+            const performApiCallDetail = async (prompt, useGrounding) => {
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+
+                if (useGrounding) {
+                    payload.tools = [{ "google_search": {} }];
+                }
+
+                const options = {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                };
+
+                const response = await fetchWithRetry(apiUrl, options);
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    // Only return text, no source processing
+                    return { text };
+                } else if (result.error) {
+                    throw new Error(`API Error: ${result.error.message}`);
+                } else {
+                    throw new Error("API returned empty content.");
+                }
+            };
+
+            try {
+                // Attempt 1: With Google Search Grounding
+                const result = await performApiCallDetail(userQuery, true);
+                return result;
+
+            } catch (error) {
+                console.warn(`Detail Grounding failed: ${error.message}. Falling back to internal knowledge.`);
+
+                // Attempt 2: Without Grounding
+                try {
+                    const result = await performApiCallDetail(userQuery, false);
+                    return result;
+                } catch (fallbackError) {
+                    console.error("Detail Fallback failed:", fallbackError);
+                    return { text: `### Error Generating Content\n\nFailed to generate content for "${topicTitle}". Please check your console for API errors.` };
+                }
+            }
+        };
+
+        // --- Detail Modal Functions ---
+
+        window.openDetailHandler = async (item) => {
+            const modal = document.getElementById('detail-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-content-body');
+
+            // Set title and show loading state
+            modalTitle.textContent = item.title || item.name || item.blogTitle;
+            modalBody.innerHTML = window.getLoadingHTML();
+            modal.classList.remove('hidden');
+
+            const result = await generateBlogSummary(item);
+
+            // Hide loading and render content with table support
+            if (result.text) {
+                // Enhanced Markdown Renderer with Table Support
+                let htmlContent = result.text;
+
+                // 1. Table Parsing Strategy
+                // Find blocks that look like tables (lines with pipes)
+                const tableRegex = /((?:\|.*\|\r?\n)+)/g;
+
+                htmlContent = htmlContent.replace(tableRegex, (match) => {
+                    const lines = match.trim().split(/\r?\n/);
+                    if (lines.length < 2) return match; // Not a valid table
+
+                    let tableHtml = '<div class="overflow-x-auto my-6 rounded-lg border border-[#30363d]"><table class="min-w-full divide-y divide-[#30363d] bg-[#0d1117] text-sm">';
+
+                    // Process Header
+                    const headerLine = lines[0];
+                    const separatorLine = lines[1];
+
+                    // Check if second line is a separator (contains - and |)
+                    if (!separatorLine.includes('-')) return match;
+
+                    const headers = headerLine.split('|').filter(cell => cell.trim() !== '').map(cell => cell.trim());
+
+                    tableHtml += '<thead class="bg-[#161b22]">';
+                    tableHtml += '<tr>';
+                    headers.forEach(header => {
+                        tableHtml += `<th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">${header}</th>`;
+                    });
+                    tableHtml += '</tr></thead>';
+
+                    // Process Body - FIXED to include all rows with pipes
+                    tableHtml += '<tbody class="divide-y divide-[#30363d]">';
+                    for (let i = 2; i < lines.length; i++) {
+                        const row = lines[i];
+                        // Skip empty rows, but process any row that has a pipe
+                        if (!row.trim() || !row.includes('|')) continue;
+
+                        // Robust cell extraction: split by pipe, ignore first/last if empty
+                        const rawCells = row.split('|');
+                        const cleanCells = rawCells.filter((cell, index) => {
+                            // Keep cell if it's not the first/last empty one
+                            if ((index === 0 || index === rawCells.length - 1) && cell.trim() === '') return false;
+                            return true;
+                        }).map(c => c.trim());
+
+                        // Only add row if we have cells
+                        if (cleanCells.length > 0) {
+                            tableHtml += '<tr>';
+                            cleanCells.forEach(cell => {
+                                tableHtml += `<td class="px-6 py-4 text-gray-300">${cell}</td>`;
+                            });
+                            tableHtml += '</tr>';
+                        }
+                    }
+                    tableHtml += '</tbody></table></div>';
+
+                    return tableHtml;
+                });
+
+                // 2. Standard Markdown Formatting
+                htmlContent = htmlContent
+                    .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') // Bold
+                    .replace(/\*(.*?)\*/g, '<i>$1</i>')   // Italic
+                    .replace(/^#+ (.*$)/gim, '<h4 class="text-xl font-semibold mt-6 mb-2 text-primary-blue">$1</h4>') // Headings
+                    .replace(/^- (.*$)/gim, '<li class="ml-4 list-disc text-gray-300">$1</li>') // List items
+                    .replace(/^(?!<h4 class="text-xl|<li class="ml-4|<div class="overflow-x-auto|<table|<thead|<tbody|<tr|<td)(.*$)/gim, (match) => {
+                        // Avoid wrapping table HTML or already wrapped elements in paragraphs
+                        if (match.trim().startsWith('<')) return match;
+                        return `<p class="mb-4 text-gray-300">${match}</p>`;
+                    });
+
+                modalBody.innerHTML = htmlContent;
+            } else {
+                modalBody.innerHTML = `
+                    <p class="text-red-400 p-4">Error loading content: Check console for details.</p>
+                `;
+            }
+        };
+
+        window.closeDetail = () => {
+            document.getElementById('detail-modal').classList.add('hidden');
+        };
+
+        // Global loading HTML for the modal
+        window.getLoadingHTML = () => `
+            <div class="flex flex-col items-center justify-center p-16">
+                <svg class="animate-spin h-8 w-8 text-primary-blue" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-4 text-primary-blue text-lg">Generating detailed analysis...</p>
+            </div>
+        `;
+
+        // --- Main Initialization ---
+
+        const initDashboard = async () => {
+            // Display loading state initially
+            isLoading = true;
+            renderCards('trends-container', [], 'trend');
+            renderCards('tools-container', [], 'tool');
+            renderCards('languages-container', [], 'language');
+            renderCards('blogs-container', [], 'blog');
+
+            // Fetch data from API
+            const userQuery = "Provide the latest software architecture trends, essential tools, and most popular programming languages relevant to modern systems design, and list 6 highly recommended blogs or articles.";
+            await fetchGeminiData(userQuery);
+        };
+
+        window.onload = () => {
+            loadBookmarks();
+            initDashboard();
+        };
+    </script>
+</head>
+
+<body>
+
+    <!-- Header Navigation -->
+    <header class="sticky top-0 z-50 bg-[#161b22] border-b border-[#30363d] shadow-2xl">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row justify-between items-center">
+            <h1 class="text-3xl font-extrabold text-primary-blue tracking-tight mb-3 md:mb-0">
+                <span class="text-2xl text-white mr-1">λ</span> Architecture Pulse
+            </h1>
+
+            <!-- Search Bar & Actions -->
+            <div class="w-full md:w-1/2 flex items-center gap-4">
+                <input type="search" id="search-input" onkeypress="window.handleSearch(event)"
+                    placeholder="Search for architecture topics (press Enter)..."
+                    class="flex-grow p-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg focus:ring-primary-blue focus:border-primary-blue text-sm text-white transition duration-150">
+
+                <button onclick="toggleBookmarksView()"
+                    class="relative p-2 text-gray-400 hover:text-white transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                    <span id="bookmark-count"
+                        class="absolute -top-1 -right-1 bg-primary-blue text-black text-xs font-bold px-1.5 py-0.5 rounded-full hidden">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Layout -->
+    <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+
+        <!-- Search Results Section (Hidden by default) -->
+        <section id="search-results-section" class="hidden mb-16">
+            <!-- Search Results Banner -->
+            <div
+                class="mb-10 p-6 md:p-8 bg-[#161b22] border border-primary-blue/30 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-white mb-2 flex items-center">
+                        <svg class="w-8 h-8 text-primary-blue mr-3" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        Search Results
+                    </h2>
+                    <p class="text-gray-400">Showing results for: <span id="search-query-display"
+                            class="text-primary-blue font-semibold"></span></p>
+                </div>
+                <button onclick="clearSearch()"
+                    class="px-6 py-2.5 bg-[#30363d] hover:bg-[#484f58] text-white font-medium rounded-lg transition-all duration-200 flex items-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    Back to Dashboard
+                </button>
+            </div>
+
+            <!-- Search Results Grid -->
+            <section id="search-trends" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-primary-blue pl-4 mb-8 text-white">
+                    <span class="text-primary-blue">01.</span> Trends
+                </h2>
+                <div id="search-trends-container" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4"></div>
+            </section>
+
+            <section id="search-tools" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-green-400 pl-4 mb-8 text-white">
+                    <span class="text-green-400">02.</span> Tools
+                </h2>
+                <div id="search-tools-container" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4"></div>
+            </section>
+
+            <section id="search-languages" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-language-color pl-4 mb-8 text-white">
+                    <span class="text-language-color">03.</span> Languages
+                </h2>
+                <div id="search-languages-container" class="grid gap-6 sm:grid-cols-1 lg:grid-cols-3"></div>
+            </section>
+
+            <section id="search-blogs" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-purple-400 pl-4 mb-8 text-white">
+                    <span class="text-purple-400">04.</span> Blogs
+                </h2>
+                <div id="search-blogs-container" class="grid gap-6 sm:grid-cols-1 lg:grid-cols-3"></div>
+            </section>
+        </section>
+
+        <!-- Bookmarks Section (Hidden by default) -->
+        <section id="bookmarks-section" class="hidden mb-16">
+            <!-- Saved Items Banner -->
+            <div
+                class="mb-10 p-6 md:p-8 bg-[#161b22] border border-yellow-500/30 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-white mb-2 flex items-center">
+                        <svg class="w-8 h-8 text-yellow-500 mr-3" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
+                        </svg>
+                        Saved Items
+                    </h2>
+                    <p class="text-gray-400">Your personal collection of trends, tools, and resources.</p>
+                </div>
+                <button onclick="toggleBookmarksView()"
+                    class="px-6 py-2.5 bg-[#30363d] hover:bg-[#484f58] text-white font-medium rounded-lg transition-all duration-200 flex items-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    Back to Dashboard
+                </button>
+            </div>
+
+            <div id="bookmarks-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <!-- Bookmarks injected here -->
+            </div>
+        </section>
+
+        <div id="main-dashboard">
+            <!-- Introduction Banner -->
+            <section class="mb-12 p-6 md:p-10 bg-[#161b22] border border-primary-blue/50 rounded-2xl shadow-xl">
+                <h2 class="text-2xl md:text-3xl font-semibold mb-3 text-white">Your Real-Time Architecture Update</h2>
+                <p class="text-gray-400 text-lg">
+                    Powered by Gemini API, stay ahead of the curve with curated insights on modern distributed systems,
+                    cloud patterns, and essential developer tools.
+                </p>
+            </section>
+
+            <!-- 1. Latest Architecture Trends -->
+            <section id="trends" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-primary-blue pl-4 mb-8 text-white">
+                    <span class="text-primary-blue">01.</span> Latest Architecture Trends
+                </h2>
+                <div id="trends-container" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                    <!-- Trend cards will be injected here by JavaScript/API -->
+                </div>
+            </section>
+
+            <!-- 2. Essential Tools & Technologies -->
+            <section id="tools" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-green-400 pl-4 mb-8 text-white">
+                    <span class="text-green-400">02.</span> Essential Tools & Technologies
+                </h2>
+                <div id="tools-container" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                    <!-- Tool cards will be injected here by JavaScript/API -->
+                </div>
+            </section>
+
+            <!-- 3. Top Programming Languages -->
+            <section id="languages" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-language-color pl-4 mb-8 text-white">
+                    <span class="text-language-color">03.</span> Top Programming Languages
+                </h2>
+                <div id="languages-container" class="grid gap-6 sm:grid-cols-1 lg:grid-cols-3">
+                    <!-- Language cards will be injected here by JavaScript/API -->
+                </div>
+            </section>
+
+            <!-- 4. Recommended Blog Posts -->
+            <section id="blogs" class="mb-16">
+                <h2 class="text-3xl font-bold border-l-4 border-purple-400 pl-4 mb-8 text-white">
+                    <span class="text-purple-400">04.</span> Highly Recommended Blog Posts
+                </h2>
+                <div id="blogs-container" class="grid gap-6 sm:grid-cols-1 lg:grid-cols-3">
+                    <!-- Blog cards will be injected here by JavaScript/API -->
+                </div>
+            </section>
+        </div> <!-- End of main-dashboard -->
+
+    </main>
+
+    <!-- Detail Modal -->
+    <div id="detail-modal" class="modal-backdrop hidden" onclick="window.closeDetail()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="p-6">
+                <!-- Modal Header -->
+                <div class="flex justify-between items-start border-b border-[#30363d] pb-4 mb-4">
+                    <h3 id="modal-title" class="text-3xl font-bold text-white pr-8">Detail Title</h3>
+                    <button class="text-gray-400 hover:text-white" onclick="window.closeDetail()">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Modal Body (AI Generated Content) -->
+                <div id="modal-content-body" class="markdown-body text-gray-300 pb-4">
+                    <!-- Content will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>
