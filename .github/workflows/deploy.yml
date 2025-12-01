@@ -23,7 +23,7 @@ jobs:
       
       - name: Create config.js from template
         run: |
-          sed "s/\\${GEMINI_API_KEY}/${{ secrets.GEMINI_API_KEY }}/g" config.template.js > config.js
+          sed "s|\${GEMINI_API_KEY}|${{ secrets.GEMINI_API_KEY }}|g" config.template.js > config.js
 
       - name: Remove .gitignore to include config.js in upload
         run: rm .gitignore
