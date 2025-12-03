@@ -115,6 +115,23 @@
 
         // --- Bookmarking Functions ---
 
+        // --- Helper Functions ---
+
+        // Safe encoding that handles Unicode characters
+        const safeEncode = (str) => {
+            try {
+                return btoa(unescape(encodeURIComponent(str)));
+            } catch (e) {
+                // Fallback: use a simple hash
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                    hash |= 0;
+                }
+                return 'id_' + Math.abs(hash).toString(36);
+            }
+        };
+
         const loadBookmarks = () => {
             const saved = localStorage.getItem('architecturePulseBookmarks');
             if (saved) {
@@ -134,7 +151,7 @@
         };
 
         const toggleBookmark = (item, type) => {
-            const itemId = item.id || btoa(item.title || item.name || item.blogTitle);
+            const itemId = item.id || safeEncode(item.title || item.name || item.blogTitle);
             const index = bookmarks.findIndex(b => b.id === itemId);
 
             if (index === -1) {
@@ -244,7 +261,7 @@
             }
 
             items.forEach(item => {
-                const itemId = item.id || btoa(item.title || item.name || item.blogTitle);
+                const itemId = item.id || safeEncode(item.title || item.name || item.blogTitle);
                 item.id = itemId;
                 item.type = type;
 
@@ -292,6 +309,136 @@
 
                 container.innerHTML += cardHtml;
             });
+        };
+
+        const toggleRadarView = () => {
+            const mainView = document.getElementById('main-dashboard');
+            const bookmarksView = document.getElementById('bookmarks-section');
+            const searchView = document.getElementById('search-results-section');
+            const radarView = document.getElementById('tech-radar-section');
+            const radarBtn = document.getElementById('nav-radar-btn');
+            const homeBtn = document.getElementById('nav-home-btn');
+
+            if (radarView.classList.contains('hidden')) {
+                // Show Radar
+                mainView.classList.add('hidden');
+                bookmarksView.classList.add('hidden');
+                searchView.classList.add('hidden');
+                radarView.classList.remove('hidden');
+
+                // Update Nav State
+                if (radarBtn) {
+                    radarBtn.classList.add('text-primary-blue');
+                    radarBtn.classList.remove('text-gray-300');
+                }
+                if (homeBtn) {
+                    homeBtn.classList.remove('text-primary-blue');
+                    homeBtn.classList.add('text-gray-300');
+                }
+
+                renderRadarTable();
+                window.scrollTo(0, 0);
+            } else {
+                // Show Dashboard
+                radarView.classList.add('hidden');
+                mainView.classList.remove('hidden');
+
+                // Update Nav State
+                if (radarBtn) {
+                    radarBtn.classList.remove('text-primary-blue');
+                    radarBtn.classList.add('text-gray-300');
+                }
+                if (homeBtn) {
+                    homeBtn.classList.add('text-primary-blue');
+                    homeBtn.classList.remove('text-gray-300');
+                }
+            }
+        };
+
+        const renderRadarTable = () => {
+            const container = document.getElementById('radar-table-container');
+            if (!container) return;
+
+            const rings = [
+                { name: 'ADOPT', color: '#58a6ff', desc: 'Proven and recommended' },
+                { name: 'TRIAL', color: '#7ee787', desc: 'Worth pursuing' },
+                { name: 'ASSESS', color: '#ffa657', desc: 'Worth exploring' },
+                { name: 'HOLD', color: '#ff7b72', desc: 'Proceed with caution' }
+            ];
+
+            let html = '';
+
+            rings.forEach(ring => {
+                //  Collect all items for this ring
+                const items = [];
+
+                dashboardData.languages.forEach(item => {
+                    if ((item.ring || '').toLowerCase() === ring.name.toLowerCase()) {
+                        items.push({ ...item, category: 'Language', name: item.name });
+                    }
+                });
+
+                dashboardData.tools.forEach(item => {
+                    if ((item.ring || '').toLowerCase() === ring.name.toLowerCase()) {
+                        items.push({ ...item, category: 'Tool', name: item.title });
+                    }
+                });
+
+                dashboardData.trends.forEach(item => {
+                    if ((item.ring || '').toLowerCase() === ring.name.toLowerCase()) {
+                        items.push({ ...item, category: 'Trend', name: item.title });
+                    }
+                });
+
+                if (items.length > 0) {
+                    html += `
+                        <div class="bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden">
+                            <div class="px-6 py-4 border-b border-[#30363d] flex items-center gap-3 bg-[#0d1117]">
+                                <div class="w-3 h-3 rounded-full" style="background-color: ${ring.color}"></div>
+                                <h3 class="text-xl font-bold text-white">${ring.name}</h3>
+                                <span class="text-gray-500 text-sm">- ${ring.desc}</span>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-gray-400">
+                                    <thead class="bg-[#0d1117] text-gray-300 uppercase font-medium">
+                                        <tr>
+                                            <th class="px-6 py-3">Technology</th>
+                                            <th class="px-6 py-3">Category</th>
+                                            <th class="px-6 py-3">Description</th>
+                                            <th class="px-6 py-3">Tags</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-[#30363d]">
+                                        ${items.map(item => `
+                                            <tr class="hover:bg-[#1e2329] transition-colors">
+                                                <td class="px-6 py-4 font-semibold text-white">${item.name || item.title}</td>
+                                                <td class="px-6 py-4">
+                                                    <span class="px-2 py-1 rounded text-xs font-medium border border-[#30363d] ${item.category === 'Language' ? 'text-language-color bg-[#1e2329]' :
+                            item.category === 'Tool' ? 'text-green-400 bg-[#1e2329]' :
+                                'text-primary-blue bg-[#1e2329]'
+                        }">${item.category}</span>
+                                                </td>
+                                                <td class="px-6 py-4 max-w-md truncate" title="${item.description || item.summary}">
+                                                    ${(item.description || item.summary || '').substring(0, 150)}${(item.description || item.summary || '').length > 150 ? '...' : ''}
+                                                </td>
+                                                <td class="px-6 py-4">
+                                                    <div class="flex flex-wrap gap-1">
+                                                        ${(item.tags || []).slice(0, 2).map(tag => `
+                                                            <span class="px-2 py-0.5 rounded-full bg-[#30363d] text-xs">${tag}</span>
+                                                        `).join('')}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            container.innerHTML = html || '<div class="text-center text-gray-500 py-10">No radar data available yet.</div>';
         };
 
         const renderBookmarks = () => {
@@ -535,11 +682,19 @@
                 
                 JSON Schema to follow:
                 {
-                    "trends": [{"title": "string", "description": "string", "tags": ["string"], "date": "string"}],
-                    "tools": [{"title": "string", "description": "string", "tags": ["string"], "source": "string"}],
-                    "languages": [{"name": "string", "description": "string", "tags": ["string"], "useCase": "string"}],
+                    "trends": [{"title": "string", "description": "string", "tags": ["string"], "date": "string", "ring": "ADOPT|TRIAL|ASSESS|HOLD"}],
+                    "tools": [{"title": "string", "description": "string", "tags": ["string"], "source": "string", "ring": "ADOPT|TRIAL|ASSESS|HOLD"}],
+                    "languages": [{"name": "string", "description": "string", "tags": ["string"], "useCase": "string", "ring": "ADOPT|TRIAL|ASSESS|HOLD"}],
                     "blogs": [{"blogTitle": "string", "author": "string", "summary": "string", "tags": ["string"]}]
                 }
+                
+                IMPORTANT: Each trend, tool, and language MUST include a "ring" property with one of these values: "ADOPT", "TRIAL", "ASSESS", or "HOLD".
+                - ADOPT: Proven, stable, widely recommended for production use
+                - TRIAL: Promising, worth trying in non-critical projects
+                - ASSESS: Emerging, worth exploring and learning about
+                - HOLD: Declining or problematic, use with caution
+                
+                Distribute items across different rings based on their maturity and adoption level.
             `;
 
             // Function to perform the API call
@@ -800,6 +955,28 @@
                 <span class="text-2xl text-white mr-1">λ</span> Architecture Pulse
             </h1>
 
+            <!-- Navigation -->
+            <nav class="flex gap-6 mx-8">
+                <button id="nav-home-btn" onclick="toggleRadarView()"
+                    class="text-primary-blue font-semibold hover:text-white transition-colors flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z">
+                        </path>
+                    </svg>
+                    Dashboard
+                </button>
+                <button id="nav-radar-btn" onclick="toggleRadarView()"
+                    class="text-gray-300 font-semibold hover:text-white transition-colors flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7">
+                        </path>
+                    </svg>
+                    Tech Radar
+                </button>
+            </nav>
+
             <!-- Search Bar & Actions -->
             <div class="w-full md:w-1/2 flex items-center gap-4">
                 <input type="search" id="search-input" onkeypress="window.handleSearch(event)"
@@ -822,6 +999,37 @@
 
     <!-- Main Content Layout -->
     <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+
+        <!-- Tech Radar Section (Hidden by default) -->
+        <section id="tech-radar-section" class="hidden mb-16">
+            <div
+                class="mb-10 p-6 md:p-8 bg-[#161b22] border border-primary-blue/30 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-white mb-2 flex items-center">
+                        <svg class="w-8 h-8 text-primary-blue mr-3" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7">
+                            </path>
+                        </svg>
+                        Tech Radar
+                    </h2>
+                    <p class="text-gray-400">Explore technologies by their adoption maturity.</p>
+                </div>
+                <button onclick="toggleRadarView()"
+                    class="px-6 py-2.5 bg-[#30363d] hover:bg-[#484f58] text-white rounded-lg transition-all duration-200 font-semibold flex items-center shadow-lg">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    Back to Dashboard
+                </button>
+            </div>
+
+            <div id="radar-table-container" class="space-y-8">
+                <!-- Radar content will be rendered here -->
+            </div>
+        </section>
 
         <!-- Search Results Section (Hidden by default) -->
         <section id="search-results-section" class="hidden mb-16">
